@@ -321,7 +321,12 @@ static int _mount_private_shm(void)
 			return rc;
 		}
 	}
-	rc = mount("tmpfs", "/dev/shm", "tmpfs", 0, NULL);
+	// mount options:
+	// size=0: no size limit. By default, the size of the tmpfs is limited
+	// 	   to half of the physical RAM. This option removes that limit so that
+	// 	   users can make full use of the available memory.
+	// Docs: https://www.man7.org/linux/man-pages/man5/tmpfs.5.html
+	rc = mount("tmpfs", "/dev/shm", "tmpfs", 0, "size=0");
 	if (rc) {
 		error("%s: /dev/shm mount failed: %m", __func__);
 		return -1;
