@@ -60,6 +60,7 @@
 #include "src/common/uid.h"
 #include "src/common/xmalloc.h"
 #include "src/common/xstring.h"
+#include "src/interfaces/gres.h"
 #include "src/interfaces/switch.h"
 #include "src/slurmd/slurmstepd/slurmstepd_job.h"
 
@@ -364,10 +365,28 @@ static int _clean_job_basepath(uint32_t job_id)
 	return SLURM_SUCCESS;
 }
 
+/* Append "name[:type]:count" for this node's allocation of one GRES */
+static int _foreach_node_gres(void *x, void *arg)
+{
+	gres_state_t *gres_state = x;
+	gres_job_state_t *gres_js = gres_state->gres_data;
+	char **gres_str = arg;
+	uint64_t cnt = 0;
+
+	if (gres_js && gres_js->gres_cnt_node_alloc)
+		cnt = gres_js->gres_cnt_node_alloc[0];
+	xstrfmtcat(*gres_str, "%s%s%s%s:%"PRIu64, (*gres_str ? "," : ""),
+		   gres_state->gres_name,
+		   ((gres_js && gres_js->type_name) ? ":" : ""),
+		   ((gres_js && gres_js->type_name) ? gres_js->type_name : ""),
+		   cnt);
+	return 0;
+}
+
 static int _create_ns(uint32_t job_id, stepd_step_rec_t *step)
 {
 	char *job_mount = NULL, *ns_holder = NULL, *src_bind = NULL;
-	char *result = NULL;
+	char *result = NULL, *gres_str = NULL;
 	int fd;
 	int rc = 0;
 	sem_t *sem1 = NULL;
@@ -446,6 +465,14 @@ static int _create_ns(uint32_t job_id, stepd_step_rec_t *step)
 		env_array_overwrite_fmt(&run_command_args.env,
 					"SLURMD_NODENAME", "%s",
 					conf->node_name);
+		/* Always set, so the script can tell "no GRES" from "unpatched" */
+		if (step->job_gres_list)
+			list_for_each(step->job_gres_list, _foreach_node_gres,
+				      &gres_str);
+		env_array_overwrite_fmt(&run_command_args.env,
+					"SLURM_JOB_GRES_NODE", "%s",
+					gres_str ? gres_str : "");
+		xfree(gres_str);
 		result = run_command(&run_command_args);
 		env_array_free(run_command_args.env);
 		if (rc) {
